@@ -21,14 +21,28 @@ const (
 )
 
 // ASCIIClientHandler implements Packager and Transporter interface.
-type ASCIIClientHandler struct {
+type ASCIIClientSerialHandler struct {
 	asciiPackager
 	asciiSerialTransporter
 }
 
+// 用来增加tcp ASCII
+type ASCIIClientTcpHandler struct {
+	asciiPackager
+	asciiTcpTransporter
+}
+
 // NewASCIIClientHandler allocates and initializes a ASCIIClientHandler.
-func NewASCIIClientHandler(address string) *ASCIIClientHandler {
-	handler := &ASCIIClientHandler{}
+func NewASCIIClientTcpHandler(address string) *ASCIIClientTcpHandler {
+	handler := &ASCIIClientTcpHandler{}
+	handler.Address = address
+	handler.Timeout = serialTimeout
+	handler.IdleTimeout = serialIdleTimeout
+	return handler
+}
+
+func NewASCIIClientSerialHandler(address string) *ASCIIClientSerialHandler {
+	handler := &ASCIIClientSerialHandler{}
 	handler.Address = address
 	handler.Timeout = serialTimeout
 	handler.IdleTimeout = serialIdleTimeout
@@ -36,9 +50,16 @@ func NewASCIIClientHandler(address string) *ASCIIClientHandler {
 }
 
 // ASCIIClient creates ASCII client with default handler and given connect string.
-func ASCIIClient(address string) Client {
-	handler := NewASCIIClientHandler(address)
-	return NewClient(handler)
+func ASCIIClient(address, network string) Client {
+	if network == "tcp" {
+		handler := NewASCIIClientTcpHandler(address)
+		return NewClient(handler)
+	}
+	if network == "serial" {
+		handler := NewASCIIClientSerialHandler(address)
+		return NewClient(handler)
+	}
+	return nil
 }
 
 // asciiPackager implements Packager interface.
@@ -47,12 +68,13 @@ type asciiPackager struct {
 }
 
 // Encode encodes PDU in a ASCII frame:
-//  Start           : 1 char
-//  Address         : 2 chars
-//  Function        : 2 chars
-//  Data            : 0 up to 2x252 chars
-//  LRC             : 2 chars
-//  End             : 2 chars
+//
+//	Start           : 1 char
+//	Address         : 2 chars
+//	Function        : 2 chars
+//	Data            : 0 up to 2x252 chars
+//	LRC             : 2 chars
+//	End             : 2 chars
 func (mb *asciiPackager) Encode(pdu *ProtocolDataUnit) (adu []byte, err error) {
 	var buf bytes.Buffer
 
@@ -160,6 +182,10 @@ type asciiSerialTransporter struct {
 	serialPort
 }
 
+type asciiTcpTransporter struct {
+	tcpTransporter
+}
+
 func (mb *asciiSerialTransporter) Send(aduRequest []byte) (aduResponse []byte, err error) {
 	mb.serialPort.mu.Lock()
 	defer mb.serialPort.mu.Unlock()
@@ -223,5 +249,46 @@ func readHex(data []byte) (value byte, err error) {
 		return
 	}
 	value = dst[0]
+	return
+}
+
+func (mb *asciiTcpTransporter) Send(aduRequest []byte) (aduResponse []byte, err error) {
+	mb.tcpTransporter.mu.Lock()
+	defer mb.tcpTransporter.mu.Unlock()
+
+	// Make sure port is connected
+	if err = mb.tcpTransporter.connect(); err != nil {
+		return
+	}
+	// Start the timer to close when idle
+	mb.tcpTransporter.lastActivity = time.Now()
+	mb.tcpTransporter.startCloseTimer()
+
+	// Send the request
+	mb.tcpTransporter.logf("modbus: sending %q\n", aduRequest)
+	if _, err = mb.conn.Write(aduRequest); err != nil {
+		return
+	}
+	// Get the response
+	var n int
+	var data [asciiMaxSize]byte
+	length := 0
+	for {
+		if n, err = mb.conn.Read(data[length:]); err != nil {
+			return
+		}
+		length += n
+		if length >= asciiMaxSize || n == 0 {
+			break
+		}
+		// Expect end of frame in the data received
+		if length > asciiMinSize {
+			if string(data[length-len(asciiEnd):length]) == asciiEnd {
+				break
+			}
+		}
+	}
+	aduResponse = data[:length]
+	mb.tcpTransporter.logf("modbus: received %q\n", aduResponse)
 	return
 }

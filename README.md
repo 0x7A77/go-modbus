@@ -23,23 +23,10 @@ Supported formats
 -----------------
 *   TCP
 *   Serial (RTU, ASCII)
+*   Tcp (RTU, ASCII)
 
-Usage
+Example
 -----
-Basic usage:
-```go
-// Modbus TCP
-client := modbus.TCPClient("localhost:502")
-// Read input register 9
-results, err := client.ReadInputRegisters(8, 1)
-
-// Modbus RTU/ASCII
-// Default configuration is 19200, 8, 1, even
-client = modbus.RTUClient("/dev/ttyS0")
-results, err = client.ReadCoils(2, 1)
-```
-
-Advanced usage:
 ```go
 // Modbus TCP
 handler := modbus.NewTCPClientHandler("localhost:502")
@@ -51,14 +38,11 @@ err := handler.Connect()
 defer handler.Close()
 
 client := modbus.NewClient(handler)
-results, err := client.ReadDiscreteInputs(15, 2)
-results, err = client.WriteMultipleRegisters(1, 2, []byte{0, 3, 0, 4})
-results, err = client.WriteMultipleCoils(5, 10, []byte{4, 3})
 ```
 
 ```go
-// Modbus RTU/ASCII
-handler := modbus.NewRTUClientHandler("/dev/ttyUSB0")
+// Modbus RTU Serial
+handler := modbus.NewRTUClientSerialHandler("/dev/ttyUSB0")
 handler.BaudRate = 115200
 handler.DataBits = 8
 handler.Parity = "N"
@@ -70,9 +54,60 @@ err := handler.Connect()
 defer handler.Close()
 
 client := modbus.NewClient(handler)
-results, err := client.ReadDiscreteInputs(15, 2)
 ```
+
+```go
+// Modbus RTU TCP
+handler := modbus.NewTCPClientHandler("localhost:502")
+handler.Timeout = 10 * time.Second
+handler.SlaveId = 0xFF
+handler.Logger = log.New(os.Stdout, "test: ", log.LstdFlags)
+// Connect manually so that multiple requests are handled in one connection session
+err := handler.Connect()
+defer handler.Close()
+
+client := modbus.NewClient(handler)
+```
+
+
+
+
+
+```go
+// Modbus ASCII Serial
+handler := modbus.NewASCIIClientSerialHandler("/dev/ttyUSB0")
+handler.BaudRate = 115200
+handler.DataBits = 8
+handler.Parity = "N"
+handler.StopBits = 1
+handler.SlaveId = 1
+handler.Timeout = 5 * time.Second
+
+err := handler.Connect()
+defer handler.Close()
+
+client := modbus.NewClient(handler)
+```
+
+```go
+// Modbus ASCII TCP
+handler := modbus.NewASCIIClientTcpHandler("/dev/ttyUSB0")
+handler.BaudRate = 115200
+handler.DataBits = 8
+handler.Parity = "N"
+handler.StopBits = 1
+handler.SlaveId = 1
+handler.Timeout = 5 * time.Second
+
+err := handler.Connect()
+defer handler.Close()
+
+client := modbus.NewClient(handler)
+```
+
+
 
 References
 ----------
+
 -   [Modbus Specifications and Implementation Guides](http://www.modbus.org/specs.php)
